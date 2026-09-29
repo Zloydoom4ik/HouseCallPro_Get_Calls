@@ -2,16 +2,15 @@
 """
 Сборщик звонков Housecall Pro.
 
-Что делает:
-  1) Листает журнал звонков (/alpha/voice/call_logs) и пишет метаданные в SQLite.
+  1) Листает журнал звонков (/alpha/voice/call_logs) и пишет метаданные в PostgreSQL.
   2) Скачивает аудиозаписи из Twilio на диск (стерео, если доступно).
   3) Помнит, что уже выгружено, — повторный запуск не создаёт дублей.
 
 Режимы:
-  python collect.py                 обычный инкрементальный проход (для крона раз в сутки)
-  python collect.py --full          полный проход истории (первый запуск), назад на HCP_BACKFILL_DAYS
+  python collect.py                 инкрементальный проход (крон раз в сутки)
+  python collect.py --full          полный проход истории назад на HCP_BACKFILL_DAYS
   python collect.py --metadata-only только метаданные, без скачивания файлов
-  python collect.py --downloads-only только докачать записи из БД (без обхода журнала)
+  python collect.py --downloads-only только докачать записи, что уже в БД
   python collect.py --max-pages N   ограничить число страниц (для проверки)
 
 Коды выхода: 0 — ок; 2 — сессия истекла (нужен новый cookie); 3 — API изменился; 1 — прочее.
@@ -32,9 +31,11 @@ from hcp_client import (
 # ----------------------------- разбор JSON -----------------------------
 
 def parse_dt(value):
-    """Терпимо разбираем дату: ISO-строка или epoch. Возвращаем aware datetime или None."""
+    """Дата из ISO-строки / epoch / datetime -> aware datetime или None."""
     if value is None or value == "":
         return None
+    if isinstance(value, dt.datetime):
+        return value if value.tzinfo else value.replace(tzinfo=dt.timezone.utc)
     if isinstance(value, (int, float)):
         return dt.datetime.fromtimestamp(value, dt.timezone.utc)
     s = str(value).strip().replace("Z", "+00:00")
@@ -42,6 +43,13 @@ def parse_dt(value):
         d = dt.datetime.fromisoformat(s)
         return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
     except ValueError:
+        return None
+
+
+def _int(x):
+    try:
+        return int(x)
+    except (TypeError, ValueError):
         return None
 
 
@@ -71,8 +79,8 @@ def _dispositions(call: dict):
     if isinstance(disp, dict) and "data" in disp:
         disp = disp["data"]
     if isinstance(disp, list):
-        names = [ _first(x, "name", "label", "value") if isinstance(x, dict) else str(x)
-                  for x in disp ]
+        names = [_first(x, "name", "label", "value") if isinstance(x, dict) else str(x)
+                 for x in disp]
         return ", ".join(n for n in names if n) or None
     if isinstance(disp, dict):
         return _first(disp, "name", "label", "value")
@@ -99,21 +107,21 @@ def flatten_call(call: dict) -> dict:
         "to_number": call.get("to"),
         "customer_uuid": cust_uuid,
         "customer_name": cust_name,
-        "duration_seconds": _first(call, "duration", "duration_seconds"),
+        "duration_seconds": _int(_first(call, "duration", "duration_seconds")),
         "disposition": _dispositions(call),
-        "has_voicemail": 1 if voicemail else 0,
+        "has_voicemail": bool(voicemail),
         "call_created_at": created.isoformat() if created else None,
-        "raw_json": json.dumps(call, ensure_ascii=False),
+        "raw_json": call,          # весь исходный JSON -> JSONB
     }
 
 
-def flatten_recording(rec: dict, call_uuid: str, call_created_iso: str) -> dict:
+def flatten_recording(rec: dict, call_uuid: str, call_created_iso) -> dict:
     return {
         "sid": _first(rec, "sid", "recording_sid"),
         "call_uuid": call_uuid,
         "rec_uuid": _first(rec, "uuid", "id"),
         "status": _first(rec, "status"),
-        "duration_seconds": _first(rec, "duration", "duration_seconds"),
+        "duration_seconds": _int(_first(rec, "duration", "duration_seconds")),
         "discarded_at": _first(rec, "discarded_at"),
         "wav_url": _first(rec, "wav_url", "wav", "media_url"),
         "mp3_url": _first(rec, "mp3_url", "mp3"),
@@ -134,7 +142,7 @@ def notify(text: str) -> None:
             data={"chat_id": config.TELEGRAM_CHAT_ID, "text": text[:4000]},
             timeout=20,
         )
-    except Exception as e:  # уведомление не должно ронять скрипт
+    except Exception as e:
         print(f"(не удалось отправить в Telegram: {e})", file=sys.stderr)
 
 
@@ -143,16 +151,14 @@ def notify(text: str) -> None:
 def sync_metadata(conn, session, full: bool, max_pages=None) -> int:
     """Обходим страницы журнала, пишем звонки и записи в БД. Возвращаем число новых звонков."""
     config.RAW_DIR.mkdir(parents=True, exist_ok=True)
-    last_run = db.get_state(conn, "last_run_at")
-    watermark = parse_dt(last_run)
+    watermark = parse_dt(db.get_state(conn, "last_run_at"))
     if watermark:
-        watermark -= dt.timedelta(days=2)  # запас на «поздние» записи и итоги
+        watermark -= dt.timedelta(days=2)   # запас на «поздние» записи и итоги
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=config.HCP_BACKFILL_DAYS)
 
     total_new = 0
     known_pages_in_row = 0
     page = 1
-    total_pages = None
 
     while True:
         if max_pages and page > max_pages:
@@ -163,7 +169,7 @@ def sync_metadata(conn, session, full: bool, max_pages=None) -> int:
         if not calls:
             break
 
-        # сырой JSON на диск — страховка на случай смены схемы
+        # сырой JSON страницы на диск — страховка на случай смены схемы
         (config.RAW_DIR / f"page_{page:05d}.json").write_text(
             json.dumps(data, ensure_ascii=False), encoding="utf-8"
         )
@@ -187,8 +193,7 @@ def sync_metadata(conn, session, full: bool, max_pages=None) -> int:
         conn.commit()
         total_new += page_new
 
-        print(f"  стр.{page}"
-              + (f"/{total_pages}" if total_pages else "")
+        print(f"  стр.{page}" + (f"/{total_pages}" if total_pages else "")
               + f": звонков {len(calls)}, новых {page_new}"
               + (f", самый старый {oldest_on_page.date()}" if oldest_on_page else ""))
 
@@ -196,12 +201,10 @@ def sync_metadata(conn, session, full: bool, max_pages=None) -> int:
         if total_pages and page >= total_pages:
             break
         if full:
-            # первый проход: дошли до записей старше окна бэкофилла — дальше только удалённые
             if oldest_on_page and oldest_on_page < cutoff:
                 print("  достигли границы бэкфилла — стоп.")
                 break
         else:
-            # инкремент: остановимся, когда пошли сплошь известные/старые страницы
             if page_new == 0:
                 known_pages_in_row += 1
                 if known_pages_in_row >= 2:
@@ -228,7 +231,8 @@ def download_pending(conn) -> tuple[int, int]:
     for row in rows:
         sid = row["sid"]
         created = parse_dt(row["call_created_at"]) or dt.datetime.now(dt.timezone.utc)
-        dest = (config.REC_DIR / f"{created:%Y/%m/%d}" / f"{sid}.wav")
+        dest = config.REC_DIR / f"{created:%Y/%m/%d}" / f"{sid}.wav"
+        # файл уже на диске (например, после сбоя) — просто отмечаем, не качаем повторно
         if dest.exists() and dest.stat().st_size > 0:
             db.mark_recording(conn, sid, download_status="downloaded",
                               file_path=str(dest), file_bytes=dest.stat().st_size)
@@ -263,12 +267,10 @@ def main() -> int:
     conn = db.connect()
     db.init(conn)
 
-    # первый запуск (звонков в БД ещё нет) — всегда полный проход
-    if not args.downloads_only:
-        empty = conn.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 0
-        full = args.full or empty
-        if empty:
-            print("База пустая — делаю первый полный проход.")
+    full = args.full
+    if not args.downloads_only and db.calls_count(conn) == 0:
+        print("База пустая — делаю первый полный проход.")
+        full = True
 
     try:
         if not args.downloads_only:
@@ -278,12 +280,13 @@ def main() -> int:
             ok, fail = download_pending(conn)
             print(f"Скачано: {ok}, ошибок: {fail}")
     except AuthError as e:
-        notify(f"[HCP] Сессия истекла, выгрузка звонков остановлена.\n{e}")
+        notify(f"[HCP] Сессия истекла, выгрузка остановлена.\n{e}")
         return 2
     except SchemaError as e:
         notify(f"[HCP] API журнала звонков изменился — проверь скрипт.\n{e}")
         return 3
     except Exception as e:
+        conn.rollback()
         notify(f"[HCP] Непредвиденная ошибка: {e}")
         raise
 
