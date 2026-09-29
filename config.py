@@ -52,7 +52,8 @@ PG_PASSWORD = _get("PG_PASSWORD", "change_me_local_only")
 PG_DB = _get("PG_DB", "hcp_calls")
 PG_DSN = _get(
     "PG_DSN",
-    f"host={PG_HOST} port={PG_PORT} user={PG_USER} password={PG_PASSWORD} dbname={PG_DB}",
+    f"host={PG_HOST} port={PG_PORT} user={PG_USER} password={PG_PASSWORD} dbname={PG_DB} "
+    f"connect_timeout=5",
 )
 
 # --- Файлы на диске ---

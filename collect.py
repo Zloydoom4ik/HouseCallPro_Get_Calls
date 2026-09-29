@@ -263,6 +263,8 @@ def main() -> int:
     ap.add_argument("--downloads-only", action="store_true", help="только докачать из БД")
     ap.add_argument("--max-pages", type=int, default=None)
     args = ap.parse_args()
+    # вывод построчно без буферизации (иначе в Git Bash ничего не видно до конца работы)
+    sys.stdout.reconfigure(line_buffering=True)
 
     conn = db.connect()
     db.init(conn)

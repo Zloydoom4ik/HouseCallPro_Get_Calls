@@ -1,16 +1,18 @@
 # PostgreSQL для звонков.  Поднять: docker compose up -d   Остановить: docker compose down
+# Логин/пароль/порт берутся из .env (единый источник для Docker и для collect.py).
 # Данные живут в томе pgdata и переживают перезапуск контейнера.
 services:
   db:
     image: postgres:16
     container_name: hcp_pg
     restart: unless-stopped
+    env_file: .env
     environment:
-      POSTGRES_USER: hcp
-      POSTGRES_PASSWORD: change_me_local_only
-      POSTGRES_DB: hcp_calls
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DB}
     ports:
-      - "5439:5432"
+      - "${PG_PORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
