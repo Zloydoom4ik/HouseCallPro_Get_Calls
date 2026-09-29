@@ -163,16 +163,19 @@ def upsert_recording(conn, r: dict) -> None:
     )
 
 
-def get_downloadable(conn):
-    """Записи, которые ещё надо скачать: живые, завершённые, не скачанные."""
+def get_downloadable(conn, since=None):
+    """Записи, которые ещё надо скачать: живые, завершённые, не скачанные.
+    since — минимальная дата звонка (None = без ограничения по дате)."""
     return conn.execute(
         """
         SELECT * FROM recordings
         WHERE discarded_at IS NULL
           AND status = 'completed'
           AND download_status IN ('pending', 'failed')
+          AND (%(since)s IS NULL OR call_created_at >= %(since)s)
         ORDER BY call_created_at DESC NULLS LAST
-        """
+        """,
+        {"since": since},
     ).fetchall()
 
 

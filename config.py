@@ -37,10 +37,15 @@ HCP_BASE_URL = _get("HCP_BASE_URL", "https://pro.housecallpro.com").rstrip("/")
 HCP_COOKIE_FILE = _path(_get("HCP_COOKIE_FILE", "secrets/hcp_cookie.txt"))
 HCP_PAGE_SIZE = int(_get("HCP_PAGE_SIZE", "80"))
 # Сколько дней истории тянуть при первом полном проходе (записи старше ~6 мес уже удалены).
-HCP_BACKFILL_DAYS = int(_get("HCP_BACKFILL_DAYS", "210"))
+# Одно окно на всё: и докуда листать журнал, и за сколько дней качать аудио.
+# Ставь сам сколько нужно (напр. 60 = последние 2 месяца). 0 = без ограничения.
+HCP_BACKFILL_DAYS = int(_get("HCP_BACKFILL_DAYS", "60"))
 # Паузы между запросами, сек — не нагружаем их сервер.
 HCP_DELAY_LIST = float(_get("HCP_DELAY_LIST", "1.5"))
-HCP_DELAY_DOWNLOAD = float(_get("HCP_DELAY_DOWNLOAD", "1.0"))
+HCP_DELAY_DOWNLOAD = float(_get("HCP_DELAY_DOWNLOAD", "0.2"))
+# Параллельность: сколько страниц журнала / файлов качать одновременно.
+HCP_LIST_WORKERS = int(_get("HCP_LIST_WORKERS", "3"))
+HCP_DOWNLOAD_WORKERS = int(_get("HCP_DOWNLOAD_WORKERS", "15"))
 COOKIE_NAME = "_housecall-web_session_with_domain"
 USER_AGENT = _get("HCP_USER_AGENT", "hcp-calls-collector/1.0")
 
@@ -59,7 +64,6 @@ PG_DSN = _get(
 # --- Файлы на диске ---
 DATA_DIR = _path(_get("DATA_DIR", "data"))
 REC_DIR = DATA_DIR / "recordings"   # аудиофайлы: data/recordings/ГГГГ/ММ/ДД/RE….wav
-RAW_DIR = DATA_DIR / "raw"          # сырой JSON каждой страницы журнала (страховка)
 
 # --- Уведомления в Telegram (необязательно) ---
 TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN", "").strip()

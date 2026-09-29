@@ -1,6 +1,10 @@
-# PostgreSQL для звонков.  Поднять: docker compose up -d   Остановить: docker compose down
-# Логин/пароль/порт берутся из .env (единый источник для Docker и для collect.py).
-# Данные живут в томе pgdata и переживают перезапуск контейнера.
+# Всё приложение в Docker. Настройки — из .env (единый источник).
+#
+#   docker compose up -d                          база (Postgres)
+#   docker compose run --rm collector --full      первый полный проход
+#   docker compose run --rm collector             разовый инкрементальный проход
+#   docker compose --profile cron up -d           планировщик: сам делает проход раз в сутки
+#   docker compose down                           остановить всё (данные в томе pgdata и в ./data остаются)
 services:
   db:
     image: postgres:16
@@ -12,9 +16,49 @@ services:
       POSTGRES_PASSWORD: ${PG_PASSWORD}
       POSTGRES_DB: ${PG_DB}
     ports:
-      - "${PG_PORT}:5432"
+      - "${PG_PORT}:5432"       # наружу (Adminer, локальный запуск скрипта)
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Сборщик: запускается по требованию через `docker compose run --rm collector [флаги]`
+  collector:
+    build: .
+    image: hcp-calls-collector
+    env_file: .env
+    environment:
+      PG_HOST: db             # внутри сети compose база доступна по имени сервиса
+      PG_PORT: "5432"
+    volumes:
+      - ./data:/app/data      # аудио + сырой JSON остаются на хосте
+      - ./secrets:/app/secrets  # cookie (скрипт его обновляет, поэтому не read-only)
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["tools"]
+
+  # Планировщик: тот же образ, крутит collect.py раз в сутки. Включается профилем cron.
+  scheduler:
+    build: .
+    image: hcp-calls-collector
+    container_name: hcp_scheduler
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PG_HOST: db
+      PG_PORT: "5432"
+    volumes:
+      - ./data:/app/data
+      - ./secrets:/app/secrets
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "while true; do python collect.py; echo 'следующий проход через 24 ч'; sleep 86400; done"]
+    profiles: ["cron"]
 
 volumes:
   pgdata:

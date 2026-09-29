@@ -10,9 +10,11 @@
     так вход не «протухает», пока скрипт ходит хотя бы раз в несколько дней.
 """
 import time
-import urllib.parse
+import threading
 import requests
 import config
+
+_cookie_lock = threading.Lock()   # cookie пишут несколько потоков — по очереди
 
 
 class AuthError(Exception):
@@ -37,8 +39,9 @@ def _read_cookie() -> str:
 
 
 def _write_cookie(value: str) -> None:
-    config.HCP_COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    config.HCP_COOKIE_FILE.write_text(value.strip(), encoding="utf-8")
+    with _cookie_lock:
+        config.HCP_COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        config.HCP_COOKIE_FILE.write_text(value.strip(), encoding="utf-8")
 
 
 def make_session() -> requests.Session:
