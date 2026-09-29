@@ -1,0 +1,23 @@
+# Postgres для программы-анализатора (вторая часть проекта).
+# Сборщик звонков (collect.py) его НЕ требует — он пишет в SQLite и работает сразу.
+#
+#   docker compose up -d        поднять базу
+#   docker compose down         остановить (данные сохранятся в томе pgdata)
+#
+# Схему налить:  docker exec -i hcp_pg psql -U hcp -d hcp_calls < schema_postgres.sql
+services:
+  db:
+    image: postgres:16
+    container_name: hcp_pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hcp
+      POSTGRES_PASSWORD: change_me_local_only
+      POSTGRES_DB: hcp_calls
+    ports:
+      - "5433:5432"        # 5433 снаружи, чтобы не конфликтовать с локальным Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
