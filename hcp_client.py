@@ -25,7 +25,8 @@ class SchemaError(Exception):
     """Ответ пришёл, но структура не та, что ожидали (API мог поменяться)."""
 
 
-EXPANDS = ["call_dispositions", "customers", "recordings", "voicemails"]
+EXPANDS = ["call_dispositions", "call_dispositions.created_by", "call_dispositions.updated_by",
+           "customers", "recordings", "voicemails", "service_pros"]
 
 
 def _read_cookie() -> str:

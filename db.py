@@ -37,6 +37,8 @@ SCHEMA = [
         to_number        TEXT,
         customer_uuid    TEXT,                   -- cus_... (клиент в HCP)
         customer_name    TEXT,
+        operator_id      TEXT,                   -- pro_... (кто обработал звонок)
+        operator_name    TEXT,                   -- напр. "Max V."
         duration_seconds INTEGER,
         disposition      TEXT,                   -- итог/причина звонка (метки сотрудников)
         has_voicemail    BOOLEAN DEFAULT FALSE,
@@ -48,6 +50,10 @@ SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_calls_created  ON calls(call_created_at)",
     "CREATE INDEX IF NOT EXISTS idx_calls_customer ON calls(customer_uuid)",
+    # для уже существующей таблицы (добавляем колонки оператора, если их нет)
+    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS operator_id   TEXT",
+    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS operator_name TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_calls_operator ON calls(operator_id)",
     # Записи разговоров. Ключ — sid из Twilio (RE...). У звонка их может быть несколько.
     """
     CREATE TABLE IF NOT EXISTS recordings (
@@ -109,10 +115,11 @@ def upsert_call(conn, c: dict) -> None:
     conn.execute(
         """
         INSERT INTO calls (uuid, twilio_call_sid, direction, status, from_number, to_number,
-            customer_uuid, customer_name, duration_seconds, disposition, has_voicemail,
-            call_created_at, raw_json, first_seen_at, updated_at)
+            customer_uuid, customer_name, operator_id, operator_name, duration_seconds,
+            disposition, has_voicemail, call_created_at, raw_json, first_seen_at, updated_at)
         VALUES (%(uuid)s, %(twilio_call_sid)s, %(direction)s, %(status)s, %(from_number)s,
-            %(to_number)s, %(customer_uuid)s, %(customer_name)s, %(duration_seconds)s,
+            %(to_number)s, %(customer_uuid)s, %(customer_name)s, %(operator_id)s,
+            %(operator_name)s, %(duration_seconds)s,
             %(disposition)s, %(has_voicemail)s, %(call_created_at)s::timestamptz,
             %(raw_json)s, %(ts)s, %(ts)s)
         ON CONFLICT (uuid) DO UPDATE SET
@@ -123,6 +130,8 @@ def upsert_call(conn, c: dict) -> None:
             to_number        = EXCLUDED.to_number,
             customer_uuid    = EXCLUDED.customer_uuid,
             customer_name    = EXCLUDED.customer_name,
+            operator_id      = EXCLUDED.operator_id,
+            operator_name    = EXCLUDED.operator_name,
             duration_seconds = EXCLUDED.duration_seconds,
             disposition      = EXCLUDED.disposition,
             has_voicemail    = EXCLUDED.has_voicemail,

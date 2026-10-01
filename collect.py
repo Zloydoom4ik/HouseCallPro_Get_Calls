@@ -90,8 +90,28 @@ def _dispositions(call: dict):
                  for x in disp]
         return ", ".join(n for n in names if n) or None
     if isinstance(disp, dict):
-        return _first(disp, "name", "label", "value")
+        return _first(disp, "reason", "name", "label", "value")
     return disp if isinstance(disp, str) else None
+
+
+def _operator(call: dict):
+    """Оператор, обработавший звонок. Приоритет — кто проставил итог
+    (call_disposition.created_by), запасной — service_pro. Возвращает (id, имя)."""
+    disp = call.get("call_disposition") or call.get("call_dispositions")
+    if isinstance(disp, dict) and "data" in disp:
+        disp = disp["data"]
+    if isinstance(disp, dict):
+        cb = disp.get("created_by") or disp.get("updated_by")
+        if isinstance(cb, dict) and "data" in cb:
+            cb = cb["data"]
+        if isinstance(cb, dict):
+            return _first(cb, "id", "uuid"), _first(cb, "full_name", "name")
+    sp = call.get("service_pro")
+    if isinstance(sp, dict) and "data" in sp:
+        sp = sp["data"]
+    if isinstance(sp, dict):
+        return _first(sp, "id", "uuid"), _first(sp, "full_name", "name")
+    return None, None
 
 
 def _recordings(call: dict):
@@ -103,17 +123,20 @@ def _recordings(call: dict):
 
 def flatten_call(call: dict) -> dict:
     cust_uuid, cust_name = _customer(call)
-    created = parse_dt(_first(call, "created_at", "started_at", "created", "date"))
+    created = parse_dt(_first(call, "started_at", "created_at", "created", "date"))
     voicemail = call.get("voicemail") or call.get("voicemails")
+    op_id, op_name = _operator(call)
     return {
         "uuid": _first(call, "uuid", "id"),
         "twilio_call_sid": _first(call, "sid", "call_sid"),
-        "direction": _first(call, "direction", "type", "call_type"),
-        "status": _first(call, "status", "call_status"),
+        "direction": _first(call, "display_direction", "direction", "type"),
+        "status": _first(call, "display_status", "status", "call_status"),
         "from_number": call.get("from"),
         "to_number": call.get("to"),
         "customer_uuid": cust_uuid,
         "customer_name": cust_name,
+        "operator_id": op_id,
+        "operator_name": op_name,
         "duration_seconds": _int(_first(call, "duration", "duration_seconds")),
         "disposition": _dispositions(call),
         "has_voicemail": bool(voicemail),
