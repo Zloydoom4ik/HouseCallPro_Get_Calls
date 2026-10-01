@@ -144,6 +144,7 @@ def flatten_call(call: dict) -> dict:
         "customer_name": cust_name,
         "operator_id": op_id,
         "operator_name": op_name,
+        "lead_source": _first(call, "lead_source_name", "lead_source"),
         "duration_seconds": _int(_first(call, "duration", "duration_seconds")),
         "disposition": _dispositions(call),
         "has_voicemail": bool(voicemail),
