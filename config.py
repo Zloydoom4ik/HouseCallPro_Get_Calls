@@ -1,30 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Единый источник настроек. Читает .env (если есть) и переменные окружения.
+Единый источник настроек. Значения читаются из .env (через python-dotenv) и из окружения.
 Секретов в коде нет: cookie сессии лежит в отдельном файле (HCP_COOKIE_FILE).
 """
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE = Path(__file__).resolve().parent
 
-
-def _load_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        os.environ.setdefault(key.strip(), val.strip())
-
-
-_load_env(BASE / ".env")
-
-
-def _get(key: str, default: str = "") -> str:
-    return os.environ.get(key, default)
+# читаем .env; override=False — реальные переменные окружения (напр. из Docker) важнее
+load_dotenv(BASE / ".env", override=False)
 
 
 def _path(rel: str) -> Path:
@@ -33,38 +20,35 @@ def _path(rel: str) -> Path:
 
 
 # --- Housecall Pro ---
-HCP_BASE_URL = _get("HCP_BASE_URL", "https://pro.housecallpro.com").rstrip("/")
-HCP_COOKIE_FILE = _path(_get("HCP_COOKIE_FILE", "secrets/hcp_cookie.txt"))
-HCP_PAGE_SIZE = int(_get("HCP_PAGE_SIZE", "80"))
-# Сколько дней истории тянуть при первом полном проходе (записи старше ~6 мес уже удалены).
+HCP_BASE_URL = os.getenv("HCP_BASE_URL", "https://pro.housecallpro.com").rstrip("/")
+HCP_COOKIE_FILE = _path(os.getenv("HCP_COOKIE_FILE", "secrets/hcp_cookie.txt"))
+HCP_PAGE_SIZE = int(os.getenv("HCP_PAGE_SIZE", "80"))
 # Одно окно на всё: и докуда листать журнал, и за сколько дней качать аудио.
-# Ставь сам сколько нужно (напр. 60 = последние 2 месяца). 0 = без ограничения.
-HCP_BACKFILL_DAYS = int(_get("HCP_BACKFILL_DAYS", "60"))
-# Паузы между запросами, сек — не нагружаем их сервер.
-HCP_DELAY_LIST = float(_get("HCP_DELAY_LIST", "1.5"))
-HCP_DELAY_DOWNLOAD = float(_get("HCP_DELAY_DOWNLOAD", "0.2"))
-# Параллельность: сколько страниц журнала / файлов качать одновременно.
-HCP_LIST_WORKERS = int(_get("HCP_LIST_WORKERS", "3"))
-HCP_DOWNLOAD_WORKERS = int(_get("HCP_DOWNLOAD_WORKERS", "15"))
+# 0 = без ограничения.
+HCP_BACKFILL_DAYS = int(os.getenv("HCP_BACKFILL_DAYS", "60"))
+HCP_DELAY_LIST = float(os.getenv("HCP_DELAY_LIST", "1.5"))
+HCP_DELAY_DOWNLOAD = float(os.getenv("HCP_DELAY_DOWNLOAD", "0.2"))
+HCP_LIST_WORKERS = int(os.getenv("HCP_LIST_WORKERS", "3"))
+HCP_DOWNLOAD_WORKERS = int(os.getenv("HCP_DOWNLOAD_WORKERS", "15"))
 COOKIE_NAME = "_housecall-web_session_with_domain"
-USER_AGENT = _get("HCP_USER_AGENT", "hcp-calls-collector/1.0")
+USER_AGENT = os.getenv("HCP_USER_AGENT", "hcp-calls-collector/1.0")
 
 # --- PostgreSQL (контейнер hcp_pg из docker-compose.yml) ---
-PG_HOST = _get("PG_HOST", "localhost")
-PG_PORT = _get("PG_PORT", "5439")
-PG_USER = _get("PG_USER", "hcp")
-PG_PASSWORD = _get("PG_PASSWORD", "change_me_local_only")
-PG_DB = _get("PG_DB", "hcp_calls")
-PG_DSN = _get(
+PG_HOST = os.getenv("PG_HOST", "localhost")
+PG_PORT = os.getenv("PG_PORT", "5439")
+PG_USER = os.getenv("PG_USER", "hcp")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "change_me_local_only")
+PG_DB = os.getenv("PG_DB", "hcp_calls")
+PG_DSN = os.getenv(
     "PG_DSN",
-    f"host={PG_HOST} port={PG_PORT} user={PG_USER} password={PG_PASSWORD} dbname={PG_DB} "
-    f"connect_timeout=5",
+    f"host={PG_HOST} port={PG_PORT} user={PG_USER} password={PG_PASSWORD} "
+    f"dbname={PG_DB} connect_timeout=5",
 )
 
 # --- Файлы на диске ---
-DATA_DIR = _path(_get("DATA_DIR", "data"))
+DATA_DIR = _path(os.getenv("DATA_DIR", "data"))
 REC_DIR = DATA_DIR / "recordings"   # аудиофайлы: data/recordings/ГГГГ/ММ/ДД/RE….wav
 
 # --- Уведомления в Telegram (необязательно) ---
-TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_CHAT_ID = _get("TELEGRAM_CHAT_ID", "").strip()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
