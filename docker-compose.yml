@@ -34,7 +34,7 @@ services:
       PG_HOST: db             # внутри сети compose база доступна по имени сервиса
       PG_PORT: "5432"
     volumes:
-      - ./data:/app/data      # аудио + сырой JSON остаются на хосте
+      - ./data:/app/data      # аудиофайлы остаются на хосте (./data/recordings)
       - ./secrets:/app/secrets  # cookie (скрипт его обновляет, поэтому не read-only)
     depends_on:
       db:

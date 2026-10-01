@@ -67,14 +67,21 @@ def _first(d: dict, *keys):
     return None
 
 
+def _unwrap(v):
+    """Разворачивает обёртку HCP {"object": ..., "data": {...}} до самого объекта."""
+    if isinstance(v, dict) and "data" in v and set(v.keys()) <= {"object", "data"}:
+        return v["data"]
+    return v
+
+
 def _customer(call: dict):
-    cust = call.get("customer") or call.get("customers")
+    cust = _unwrap(call.get("customer") or call.get("customers"))
     if isinstance(cust, list):
-        cust = cust[0] if cust else None
+        cust = _unwrap(cust[0]) if cust else None
     if not isinstance(cust, dict):
         return None, None
-    uuid = _first(cust, "uuid", "id")
-    name = _first(cust, "name", "display_name", "full_name")
+    uuid = _first(cust, "id", "uuid")
+    name = _first(cust, "display_name", "billable_name", "name", "full_name")
     if not name:
         fn, ln = cust.get("first_name") or "", cust.get("last_name") or ""
         name = (fn + " " + ln).strip() or None
